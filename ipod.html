@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notion iPod Widget</title>
+<style>
+  /* --- 保持完美的響應式設計 --- */
+  body {
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    min-height: 100vh; margin: 0; background-color: transparent; overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  /* iPod 外殼 */
+  .ipod-case {
+    width: 360px; height: 640px; background: #f0f0f0; border-radius: 40px;
+    box-shadow: inset 0 0 20px rgba(255,255,255,0.8), inset -5px -5px 15px rgba(0,0,0,0.1), 0 15px 35px rgba(0,0,0,0.2);
+    padding: 25px; display: flex; flex-direction: column; align-items: center; position: relative;
+    box-sizing: border-box; transform-origin: top center; transition: transform 0.3s ease;
+  }
+  
+  /* 手機版縮放 */
+  @media (max-width: 380px) { .ipod-case { transform: scale(0.9); margin-bottom: -60px; } }
+  @media (max-width: 340px) { .ipod-case { transform: scale(0.8); margin-bottom: -120px; } }
+  
+  /* --- 輸入區與按鈕 (改良版) --- */
+  .input-zone {
+    position: absolute; top: 0; left: 0; width: 100%; height: 70px; z-index: 20;
+    display: flex; justify-content: center; align-items: center; gap: 10px; /* 讓按鈕跟輸入框有間距 */
+    opacity: 0; transition: opacity 0.3s ease;
+    border-radius: 40px 40px 0 0;
+  }
+  .input-zone:hover { opacity: 1; background-color: rgba(255, 255, 255, 0.4); backdrop-filter: blur(5px); }
+  
+  input {
+    padding: 10px 14px; border-radius: 20px; border: 1px solid #ccc; font-size: 13px; width: 180px;
+    text-align: center; background: rgba(255, 255, 255, 0.95); outline: none;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  }
+
+  /* 新增：複製按鈕樣式 */
+  button#copyBtn {
+    padding: 10px 15px; border-radius: 20px; border: none; 
+    background: #333; color: #fff; font-size: 12px; cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none; /* 預設隱藏 */
+  }
+  button#copyBtn:hover { background: #000; }
+  button#copyBtn:active { transform: scale(0.95); }
+
+  /* 螢幕 */
+  .screen-frame {
+    width: 100%; height: 380px; background-color: #000; border-radius: 12px;
+    border: 3px solid #333; overflow: hidden; margin-bottom: 30px; margin-top: 15px;
+    padding: 0; flex-shrink: 0; position: relative; z-index: 10;
+  }
+  .screen-frame iframe { width: 100%; height: 100%; border: none; display: block; }
+
+  /* 轉盤 */
+  .click-wheel {
+    width: 170px; height: 170px; background-color: #fff; border-radius: 50%; position: relative;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15); display: flex; justify-content: center; align-items: center; cursor: pointer; z-index: 10;
+  }
+  .wheel-label { position: absolute; color: #999; font-size: 11px; font-weight: bold; font-family: Arial, sans-serif; pointer-events: none; }
+  .label-menu { top: 20px; } .label-play { bottom: 20px; } .label-prev { left: 20px; } .label-next { right: 20px; }
+  .center-button { width: 60px; height: 60px; background: linear-gradient(145deg, #e6e6e6, #ffffff); border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+  .center-button:active { background: #ddd; }
+</style>
+</head>
+<body>
+
+  <div class="ipod-case">
+    <div class="input-zone">
+      <input type="text" id="spotifyLink" placeholder="貼上 Spotify 連結並按 Enter" />
+      <button id="copyBtn" onclick="copyResult()">複製網址</button>
+    </div>
+
+    <div class="screen-frame">
+      <iframe id="spotifyEmbed" src="" width="100%" height="100%" frameBorder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
+    </div>
+
+    <div class="click-wheel">
+      <div class="wheel-label label-menu">MENU</div>
+      <div class="wheel-label label-prev">|◀◀</div>
+      <div class="wheel-label label-next">▶▶|</div>
+      <div class="wheel-label label-play">▶||</div>
+      <div class="center-button"></div>
+    </div>
+  </div>
+
+<script>
+  // 1. 預設顯示的歌曲 (可自行修改)
+  const defaultUrl = "https://open.spotify.com/playlist/50UTQnwaw9Di5Jw1gjNMdn?si=Ah8o5qOBSEix9o0rK_2G5g&pt=f5c4f6ab082d5f1d96cafee5ce0ac0e9&pi=FthCHkmbSoKw_"; 
+
+  // 2. 網頁載入時：檢查網址有沒有 ?song= 參數
+  window.onload = function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const songParam = urlParams.get('song');
+    
+    if (songParam) {
+      // 如果有參數，代表這是「生成後」的連結，直接播放
+      updateIframe(songParam);
+    } else {
+      // 如果沒有參數，代表是「生成器」頁面，播預設歌
+      updateIframe(defaultUrl);
+    }
+  };
+
+  // 3. 監聽 Enter 鍵：開始生成連結
+  document.getElementById('spotifyLink').addEventListener('keypress', function (e) {
+    if (e.key === 'Enter') {
+      generateNewLink(this.value);
+    }
+  });
+
+  // 更新 iframe 畫面
+  function updateIframe(spotifyUrl) {
+    if (spotifyUrl.includes(".com")) {
+       let pathIndex = spotifyUrl.indexOf(".com");
+       let path = spotifyUrl.substring(pathIndex + 4).split('?')[0];
+       let embedSrc = `https://open.spotify.com/embed${path}?utm_source=generator&theme=0`;
+       document.getElementById('spotifyEmbed').src = embedSrc;
+    }
+  }
+
+  // ★ 核心功能：產生新的 Widget 網址
+  function generateNewLink(userUrl) {
+    if (!userUrl.includes("spotify.com")) {
+      alert("請輸入有效的 Spotify 網址！");
+      return;
+    }
+
+    // 取得目前這個網頁的網址 (例如 https://xxx.github.io/ipod)
+    // 這一步確保了連結是連回這裡，而不是連去 Spotify
+    const baseUrl = window.location.href.split('?')[0];
+    
+    // 組合新網址
+    const newWidgetUrl = `${baseUrl}?song=${encodeURIComponent(userUrl)}`;
+
+    // 將新網址填回輸入框
+    const input = document.getElementById('spotifyLink');
+    input.value = newWidgetUrl;
+    input.style.backgroundColor = "#e8f0fe"; // 變色提示
+    input.style.color = "#333";
+    
+    // 顯示複製按鈕
+    const btn = document.getElementById('copyBtn');
+    btn.style.display = "block";
+    
+    // 預覽一下效果
+    updateIframe(userUrl);
+  }
+
+  // ★ 複製功能
+  function copyResult() {
+    const input = document.getElementById('spotifyLink');
+    input.select();
+    input.setSelectionRange(0, 99999); /* 手機版兼容 */
+    navigator.clipboard.writeText(input.value).then(() => {
+      alert("✅ 複製成功！\n\n現在請去 Notion：\n1. 點擊原本的 iPod 區塊\n2. 選擇 'Replace' (替換)\n3. 貼上剛剛複製的網址");
+    });
+  }
+</script>
+
+</body>
+</html>
